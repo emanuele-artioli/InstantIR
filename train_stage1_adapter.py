@@ -42,7 +42,7 @@ from datasets import load_dataset
 from packaging import version
 from PIL import Image
 from data.data_config import DataConfig
-from basicsr.utils.degradation_pipeline import RealESRGANDegradation
+from utils.train_utils.degradation_pipeline import RealESRGANDegradation
 from losses.loss_config import LossesConfig
 from losses.losses import *
 from torchvision import transforms
