@@ -3,9 +3,7 @@ import wandb
 import cv2
 import torch.nn.functional as F
 import numpy as np
-from facenet_pytorch import MTCNN
 from torchvision import transforms
-from dreamsim import dreamsim
 from einops import rearrange
 import kornia.augmentation as K
 import lpips
@@ -48,34 +46,6 @@ class L1Loss(Loss):
         **kwargs
     ) -> torch.Tensor:
         return F.l1_loss(predict, target, reduction="mean")
-
-
-class DreamSIMLoss(Loss):
-    """DreamSIM loss between predicted_pixel_values and pixel_values.
-    DreamSIM is similar to LPIPS (https://dreamsim-nights.github.io/) but is trained on more human defined similarity dataset
-    DreamSIM expects an RGB image of size 224x224 and values between 0 and 1. So we need to normalize the input images to 0-1 range and resize them to 224x224.
-    Args:
-        predicted_pixel_values (torch.Tensor): The predicted pixel values using 1 step LCM and the VAE decoder.
-        encoder_pixel_values (torch.Tesnor): The input image to the encoder
-    """
-    def __init__(self, device: str='cuda:0', **kwargs):
-        super().__init__(**kwargs)
-        self.model, _ = dreamsim(pretrained=True, device=device)
-        self.model.to(dtype=self.dtype, device=device)
-        self.model = self.accelerator.prepare(self.model)
-        self.transforms = transforms.Compose([
-            transforms.Lambda(lambda x: (x + 1) / 2),
-            transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC)])
-
-    def forward(
-        self,
-        predicted_pixel_values: torch.Tensor,
-        encoder_pixel_values: torch.Tensor,
-        **kwargs,
-    ) -> torch.Tensor:
-        predicted_pixel_values.to(dtype=self.dtype)
-        encoder_pixel_values.to(dtype=self.dtype)
-        return self.model(self.transforms(predicted_pixel_values), self.transforms(encoder_pixel_values)).mean()
 
 
 class LPIPSLoss(Loss):
