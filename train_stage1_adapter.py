@@ -206,7 +206,7 @@ def parse_args(input_args=None):
         "--losses_config_path",
         type=str,
         required=True,
-        default='config_files/losses.yaml'
+        default='config_files/losses.yaml',
         help=("A yaml file containing losses to use and their weights."),
     )
     parser.add_argument(
