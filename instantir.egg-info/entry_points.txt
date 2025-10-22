@@ -1,0 +1,2 @@
+[console_scripts]
+instantir = instantir.cli:main

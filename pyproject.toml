@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instantir"
+version = "0.1.0"
+description = "InstantIR: Blind Image Restoration with Instant Generative Reference"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "InstantX Team"}
+]
+dependencies = [
+    "torch>=2.0",
+    "diffusers>=0.30,<0.31",
+    "accelerate>=0.24",
+    "datasets>=2.14",
+    "einops>=0.6",
+    "kornia>=0.7",
+    "opencv-python>=4.9",
+    "peft>=0.10,<0.11",
+    "pyrallis>=0.3",
+    "tokenizers>=0.14,<0.19",
+    "transformers>=4.36",
+    "numpy<2",
+]
+
+[project.scripts]
+instantir = "instantir.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+instantir = [
+    "assets/**/*",
+    "config_files/**/*",
+    "data/**/*",
+    "docs/**/*",
+    "gradio_demo/**/*",
+    "losses/**/*",
+    "module/**/*",
+    "pipelines/**/*",
+    "schedulers/**/*",
+    "scripts/**/*",
+    "utils/**/*",
+]
