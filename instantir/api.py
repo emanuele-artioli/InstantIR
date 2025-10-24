@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 import torch
 from diffusers import DDPMScheduler
+from huggingface_hub import hf_hub_download
 from PIL import Image
 
 from .module.ip_adapter.utils import load_adapter_to_pipe
@@ -49,6 +50,41 @@ def _ensure_path(path: Union[str, Path]) -> Path:
     if not path.exists():
         raise FileNotFoundError(path)
     return path
+
+
+def _download_weight_if_missing(
+    target: Path,
+    *,
+    repo_id: str,
+    filename: str,
+    remote_filename: Optional[str] = None,
+) -> Path:
+    """Download a required InstantIR weight from Hugging Face if it's not already on disk."""
+
+    target = Path(target)
+    if target.exists():
+        return target
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    remote_name = remote_filename or filename
+    try:
+        downloaded_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=remote_name,
+            local_dir=str(target.parent),
+            local_dir_use_symlinks=False,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to download '{filename}' from '{repo_id}'. Please verify network access and repository availability."
+        ) from exc
+
+    downloaded_path = Path(downloaded_path)
+    if downloaded_path.resolve() != target.resolve():
+        shutil.copy2(downloaded_path, target)
+        return target
+
+    return downloaded_path
 
 
 def _make_device(device: Optional[Union[str, torch.device]]) -> torch.device:
@@ -120,14 +156,33 @@ def load_runtime(
     """Load the InstantIR pipeline and keep it ready for inference."""
 
     device = _make_device(device)
-    instantir_path = _ensure_path(instantir_path)
+    instantir_path = Path(instantir_path).expanduser()
+    instantir_path.mkdir(parents=True, exist_ok=True)
+
+    repo_id = "InstantX/InstantIR"
+    remote_prefix = "models"
+    adapter_filename = "adapter.pt"
+    aggregator_filename = "aggregator.pt"
+    previewer_filename = "previewer_lora_weights.bin"
 
     pipe = InstantIRPipeline.from_pretrained(
         sdxl_model_id,
         torch_dtype=torch_dtype,
     )
 
-    adapter_path = adapter_path or instantir_path / "adapter.pt"
+    adapter_user_provided = adapter_path is not None
+    adapter_path = Path(adapter_path) if adapter_path is not None else instantir_path / adapter_filename
+    if adapter_path.is_dir():
+        adapter_path = adapter_path / adapter_filename
+    if adapter_user_provided:
+        adapter_path = _ensure_path(adapter_path)
+    else:
+        adapter_path = _download_weight_if_missing(
+            adapter_path,
+            repo_id=repo_id,
+            filename=adapter_filename,
+            remote_filename=f"{remote_prefix}/{adapter_filename}",
+        )
     load_adapter_to_pipe(
         pipe,
         str(adapter_path),
@@ -135,15 +190,39 @@ def load_runtime(
         use_clip_encoder=use_clip_encoder,
     )
 
-    previewer_lora_path = previewer_lora_path or instantir_path
-    lora_alpha = pipe.prepare_previewers(str(previewer_lora_path))
+    previewer_user_provided = previewer_lora_path is not None
+    previewer_resolved = Path(previewer_lora_path) if previewer_lora_path is not None else instantir_path
+    if previewer_resolved.suffix and not previewer_resolved.is_dir():
+        previewer_weights_path = previewer_resolved
+        previewer_dir = previewer_weights_path.parent
+    else:
+        previewer_dir = previewer_resolved
+        previewer_weights_path = previewer_dir / previewer_filename
+    previewer_dir.mkdir(parents=True, exist_ok=True)
+    if previewer_user_provided:
+        if not previewer_weights_path.exists():
+            raise FileNotFoundError(f"Missing previewer weights at {previewer_weights_path}")
+    else:
+        previewer_weights_path = _download_weight_if_missing(
+            previewer_weights_path,
+            repo_id=repo_id,
+            filename=previewer_filename,
+            remote_filename=f"{remote_prefix}/{previewer_filename}",
+        )
+    lora_alpha = pipe.prepare_previewers(str(previewer_dir))
     if lora_alpha is not None:
         print(f"Loaded previewer LoRA with alpha={lora_alpha}")
 
     pipe.scheduler = DDPMScheduler.from_pretrained(sdxl_model_id, subfolder="scheduler")
     scheduler = LCMSingleStepScheduler.from_config(pipe.scheduler.config)
 
-    aggregator_path = instantir_path / "aggregator.pt"
+    aggregator_path = instantir_path / aggregator_filename
+    aggregator_path = _download_weight_if_missing(
+        aggregator_path,
+        repo_id=repo_id,
+        filename=aggregator_filename,
+        remote_filename=f"{remote_prefix}/{aggregator_filename}",
+    )
     if not aggregator_path.exists():
         raise FileNotFoundError(f"Missing aggregator weights at {aggregator_path}")
     state_dict = torch.load(str(aggregator_path), map_location=map_location)
