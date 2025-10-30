@@ -288,6 +288,97 @@ def restore_image(
     return result.resize(original_size, Image.BILINEAR)
 
 
+def _prepare_prompts(
+    prompt: Prompt,
+    negative_prompt: Prompt,
+    batch_size: int,
+) -> Tuple[List[str], List[str]]:
+    prompts = [prompt] if isinstance(prompt, str) else list(prompt)
+    if len(prompts) not in (1, batch_size):
+        raise ValueError(
+            f"`prompt` must be a string, a single-item sequence, or a sequence matching the batch size ({batch_size})."
+        )
+    if len(prompts) == 1 and batch_size > 1:
+        prompts *= batch_size
+
+    neg_prompts = [negative_prompt] if isinstance(negative_prompt, str) else list(negative_prompt)
+    if len(neg_prompts) not in (1, batch_size):
+        raise ValueError(
+            "`negative_prompt` must be a string, a single-item sequence, or a sequence matching the batch size."
+        )
+    if len(neg_prompts) == 1 and batch_size > 1:
+        neg_prompts *= batch_size
+
+    return prompts, neg_prompts
+
+
+def restore_images_batch(
+    runtime: InstantIRRuntime,
+    images: Sequence[ImageInput],
+    *,
+    prompt: Prompt = _DEFAULT_PROMPT,
+    negative_prompt: Prompt = _DEFAULT_NEGATIVE_PROMPT,
+    num_inference_steps: int = 30,
+    seeds: Optional[Sequence[Optional[int]]] = None,
+    cfg: float = 7.0,
+    preview_start: float = 0.0,
+    creative_start: float = 1.0,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+) -> List[Image.Image]:
+    """Restore a batch of images using a warm InstantIR runtime."""
+
+    if not images:
+        return []
+
+    batch_size = len(images)
+    prompts, negative_prompts = _prepare_prompts(prompt, negative_prompt, batch_size)
+
+    processed_images: List[Image.Image] = []
+    original_sizes: List[Tuple[int, int]] = []
+    for img in images:
+        if isinstance(img, (str, Path)):
+            pil_image = Image.open(img).convert("RGB")
+        else:
+            pil_image = img.convert("RGB")
+        resized_image, original_size = _resize_image(
+            pil_image,
+            width=width,
+            height=height,
+        )
+        processed_images.append(resized_image)
+        original_sizes.append(original_size)
+
+    generators: Optional[List[torch.Generator]] = None
+    if seeds is not None:
+        if len(seeds) != batch_size:
+            raise ValueError("Length of `seeds` must match the number of images in the batch.")
+        generators = []
+        for seed in seeds:
+            generator = torch.Generator(device=runtime.device)
+            if seed is not None:
+                generator.manual_seed(seed)
+            generators.append(generator)
+
+    outputs = runtime.pipe(
+        prompt=prompts,
+        image=processed_images,
+        num_inference_steps=num_inference_steps,
+        generator=generators,
+        negative_prompt=negative_prompts,
+        guidance_scale=cfg,
+        previewer_scheduler=runtime.scheduler,
+        preview_start=preview_start,
+        control_guidance_end=creative_start,
+    ).images
+
+    restored_images: List[Image.Image] = []
+    for output, original_size in zip(outputs, original_sizes):
+        restored_images.append(output.resize(original_size, Image.BILINEAR))
+
+    return restored_images
+
+
 def restore_images_in_directory(
     runtime: InstantIRRuntime,
     *,
