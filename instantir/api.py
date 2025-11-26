@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
 from diffusers import DDPMScheduler
 from huggingface_hub import hf_hub_download
@@ -15,7 +16,7 @@ from .pipelines.sdxl_instantir import InstantIRPipeline
 from .schedulers.lcm_single_step_scheduler import LCMSingleStepScheduler
 
 Prompt = Union[str, Sequence[str]]
-ImageInput = Union[str, Path, Image.Image]
+ImageInput = Union[str, Path, Image.Image, np.ndarray]
 
 _DEFAULT_PROMPT = (
     "Photorealistic, highly detailed, hyper detailed photo - realistic maximum detail, "
@@ -244,10 +245,17 @@ def restore_image(
     creative_start: float = 1.0,
     width: Optional[int] = None,
     height: Optional[int] = None,
-) -> Image.Image:
-    """Restore a single image using a warm InstantIR runtime."""
+    output_type: str = "pil",
+) -> Union[Image.Image, np.ndarray]:
+    """Restore a single image using a warm InstantIR runtime.
+    
+    Args:
+        output_type: "pil" for PIL Image, "numpy" for numpy array (H,W,3) uint8 RGB.
+    """
 
-    if isinstance(image, (str, Path)):
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    elif isinstance(image, (str, Path)):
         image = Image.open(image).convert("RGB")
     else:
         image = image.convert("RGB")
@@ -285,7 +293,8 @@ def restore_image(
         control_guidance_end=creative_start,
     ).images[0]
 
-    return result.resize(original_size, Image.BILINEAR)
+    result = result.resize(original_size, Image.BILINEAR)
+    return np.array(result) if output_type == "numpy" else result
 
 
 def _prepare_prompts(
@@ -325,8 +334,13 @@ def restore_images_batch(
     creative_start: float = 1.0,
     width: Optional[int] = None,
     height: Optional[int] = None,
-) -> List[Image.Image]:
-    """Restore a batch of images using a warm InstantIR runtime."""
+    output_type: str = "pil",
+) -> Union[List[Image.Image], List[np.ndarray]]:
+    """Restore a batch of images using a warm InstantIR runtime.
+    
+    Args:
+        output_type: "pil" for PIL Images, "numpy" for numpy arrays (H,W,3) uint8 RGB.
+    """
 
     if not images:
         return []
@@ -337,7 +351,9 @@ def restore_images_batch(
     processed_images: List[Image.Image] = []
     original_sizes: List[Tuple[int, int]] = []
     for img in images:
-        if isinstance(img, (str, Path)):
+        if isinstance(img, np.ndarray):
+            pil_image = Image.fromarray(img)
+        elif isinstance(img, (str, Path)):
             pil_image = Image.open(img).convert("RGB")
         else:
             pil_image = img.convert("RGB")
@@ -376,6 +392,8 @@ def restore_images_batch(
     for output, original_size in zip(outputs, original_sizes):
         restored_images.append(output.resize(original_size, Image.BILINEAR))
 
+    if output_type == "numpy":
+        return [np.array(img) for img in restored_images]
     return restored_images
 
 
@@ -413,3 +431,4 @@ def restore_images_in_directory(
         restored_paths.append(output_path)
 
     return restored_paths
+
