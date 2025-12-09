@@ -186,6 +186,12 @@ class LCMSingleStepScheduler(SchedulerMixin, ConfigMixin):
             Whether to rescale the betas to have zero terminal SNR. This enables the model to generate very bright and
             dark samples instead of limiting it to samples with medium brightness. Loosely related to
             [`--offset_noise`](https://github.com/huggingface/diffusers/blob/74fd735eb073eb1d774b1ab4154a0876eb82f055/examples/dreambooth/train_dreambooth.py#L506).
+        interpolation_type (`str`, *optional*):
+            This parameter is accepted for compatibility with other schedulers but is not used by LCMSingleStepScheduler.
+        skip_prk_steps (`bool`, *optional*):
+            This parameter is accepted for compatibility with other schedulers but is not used by LCMSingleStepScheduler.
+        use_karras_sigmas (`bool`, *optional*):
+            This parameter is accepted for compatibility with other schedulers but is not used by LCMSingleStepScheduler.
     """
 
     order = 1
@@ -210,6 +216,10 @@ class LCMSingleStepScheduler(SchedulerMixin, ConfigMixin):
         timestep_spacing: str = "leading",
         timestep_scaling: float = 10.0,
         rescale_betas_zero_snr: bool = False,
+        # These parameters are ignored but accepted for compatibility with other schedulers
+        interpolation_type: Optional[str] = None,
+        skip_prk_steps: Optional[bool] = None,
+        use_karras_sigmas: Optional[bool] = None,
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
